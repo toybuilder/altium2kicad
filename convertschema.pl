@@ -114,10 +114,11 @@ foreach my $filename(glob('"*/Root Entry/FileHeader.dat"'))
   my $content=<IN>;
   close IN;
   
-  next unless defined($content);
-  next unless length($content)>4;
-  next if($content=~m/PCB \d+.\d+ Binary Library File/);
-  next if(unpack("l",substr($content,0,4))>length($content));
+#  next unless defined($content);
+#  next unless length($content)>4;
+#  next if($content=~m/PCB \d+.\d+ Binary Library File/);
+ # next if(unpack("l",substr($content,0,4))>length($content));
+
 
   my $text="";
   my @a=();
@@ -126,28 +127,40 @@ foreach my $filename(glob('"*/Root Entry/FileHeader.dat"'))
 
   open OUT,">$filename.txt";
   my $line=0;
-  while(length($content)>4 )
+
+  print "Weiter\n";
+
+  foreach(split "\n",$content)
   {
-    my $len=unpack("l",substr($content,0,4));
-	if($len<0)
-	{
-	  print "Error: Length is negative $filename $line: $len\n";
-	  last;
-	}
-    
-    #print "len: $len\n";
-    my $data=substr($content,4,$len); 
-    if($data=~m/\n/)
-    {
-      #print "Warning: data contains newline!\n";
-    }
-    $data=~s/\x00//g;
-    push @a,"|LINENO=$line|".$data;
-    $text.=$data."\n";
-    print OUT $data."\n";
-    substr($content,0,4+$len)="";  
-	$line++;
+    s/\r//;
+    push @a,"|LINENO=$line|$_";
+    print OUT "$_\n\n";
+    $line++;
   }
+
+#  while(length($content)>4 )
+#  {
+#    my $len=unpack("l",substr($content,0,4));
+#	if($len<0)
+#	{
+#	  print "Error: Length is negative $filename $line: $len\n";
+#	  last;
+#	}
+#    
+#    #print "len: $len\n";
+#    my $data=substr($content,4,$len); 
+#    if($data=~m/\n/)
+#    {
+      #print "Warning: data contains newline!\n";
+#    }
+
+#    $data=~s/\x00//g;
+#    push @a,"|LINENO=$line|".$data;
+#    $text.=$data."\n";
+#    print OUT $data."\n";
+#    substr($content,0,4+$len)="";  
+#	$line++;
+#  }
   close OUT;
 
 
@@ -231,7 +244,7 @@ EOF
   my $prevname="";
   my $symbol="";
   my %globalf=();
-  my $globalp="";
+  my $globalp=0;
   my %globalcomment=();
   my %globalreference=();
   my %componentheader=();
@@ -331,7 +344,7 @@ EOF
       #print "c: $c\n";
       if($c=~m/^([^=]*)=(.*)$/s)
       {
-        #print "$1 -> $2\n";
+        print "$1 -> $2\n";
         $d{$1}=$2;
       }
     }
@@ -506,9 +519,9 @@ EOF
 		if(defined($d{'LOCATION.X'})&&defined($d{'LOCATION.Y'}))
 		{
 		  my %dirtext=("0"=>"L","1"=>"D","2"=>"R","3"=>"U");
-		  my $pinorient=$d{'PINCONGLOMERATE'}&3;
-		  my $pinnamesize=($d{'PINCONGLOMERATE'}&8)?70:1; # There is a bug in KiCad´s plotting code BZR5054, which breaks all components when this size is 0
-		  my $pinnumbersize=($d{'PINCONGLOMERATE'}&16)?70:1; # The :1 should be changed to :0 as soon as the bug is resolved.
+		  my $pinorient=($d{'PINCONGLOMERATE'}||0)&3;
+		  my $pinnamesize=(($d{'PINCONGLOMERATE'}||0)&8)?70:1; # There is a bug in KiCad´s plotting code BZR5054, which breaks all components when this size is 0
+		  my $pinnumbersize=(($d{'PINCONGLOMERATE'}||0)&16)?70:1; # The :1 should be changed to :0 as soon as the bug is resolved.
 		  my %map2=("0"=>"0","1"=>"3","2"=>"2","3"=>"1");
 		  $pinorient+=$map2{$partorientation{$globalp}&3}; $pinorient&=3;
 		  my $mirrored=$partorientation{$globalp}&4;
@@ -875,6 +888,7 @@ EOF
 	  }
 	  elsif($d{'RECORD'} eq '1')  # Schematic Component
 	  {
+                print "RECORD1\n";
         #RECORD= 1|OWNERPARTID=  -1|OWNERINDEX=   0|AREACOLOR=11599871|
 		#COMPONENTDESCRIPTION=4-port multiple-TT hub with USB charging support|CURRENTPARTID=1|DESIGNITEMID=GLI8024-48_4|DISPLAYMODECOUNT=1|LIBRARYPATH=*|
 		#LIBREFERENCE=GLI8024-48_4|
@@ -885,6 +899,7 @@ EOF
 		$OWNERPARTDISPLAYMODE=$d{'DISPLAYMODE'};
 		$OWNERLINENO=$d{'LINENO'};
 		$globalp++;
+                print "globalp: $globalp\n";
 		$nextxypos=($d{'LOCATION.X'}*$f)." ".($sheety-$d{'LOCATION.Y'}*$f);
 		$partorientation{$globalp}=$d{'ORIENTATION'}||0;
 		$partorientation{$globalp}+=4 if(defined($d{'ISMIRRORED'}) && $d{'ISMIRRORED'} eq 'T');
@@ -1248,6 +1263,7 @@ EOF
   }
   foreach my $part (sort keys %parts)
   {
+    print "part: $part\n";
     print OUT "\$Comp\n";
 	#print "Reference: $part -> $globalreference{$part}\n";
 	print OUT "L $partcomp{$part} ".($globalreference{$part}||"IC$ICcount")."\n"; # IC$ICcount\n";
