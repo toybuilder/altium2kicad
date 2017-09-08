@@ -104,7 +104,7 @@ sub uniquify($)
 }
 
 
-foreach my $filename(glob('"*/Root Entry/FileHeader.dat"'))
+foreach my $filename(glob('"*.sch"'))
 {
   print "Handling $filename\n";
   my $short=$filename; $short=~s/\/Root Entry\/FileHeader\.dat$//;
@@ -163,6 +163,7 @@ foreach my $filename(glob('"*/Root Entry/FileHeader.dat"'))
 #  }
   close OUT;
 
+  $short.="-kicad";
 
   open LOG,">$short.log" if($USELOGGING);
   open LIB,">$short-cache.lib";
