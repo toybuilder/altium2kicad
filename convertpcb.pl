@@ -43,8 +43,6 @@ my $absoluteWRLpath=1;
 my $wrlprefix=$absoluteWRLpath ? Cwd::cwd() : ".";
 
 
-our %shownwarnings=();
-
 
 my $current_status=<<EOF
 Advanced Placer Options6 # Not needed
@@ -60,7 +58,7 @@ Design Rule Checker Options6 # To be done later
 DifferentialPairs6 # To be done later
 Dimensions6 # Annotations about the dimensions
 EmbeddedBoards6 # Empty
-EmbeddedFonts6 # 2 Fonts, we don´t need them
+EmbeddedFonts6 # 2 Fonts, we do not need them
 Embeddeds6 # Empty
 ExtendedPrimitiveInformation # Empty
 FileVersionInfo # Messages for when the file is opened in older Designer versions that do not support certain features in this fileformat
@@ -77,7 +75,7 @@ Rules6 #
 ShapeBasedComponentBodies6 # HALF-Done, do we need more?
 ShapeBasedRegions6 # Not needed, I guess
 SmartUnions # Empty
-Texts # Warnings for older Designer versions, I think we don´t need to support those ;-)
+Texts # Warnings for older Designer versions, I think we do not need to support those ;-)
 Texts6 # Partly done, NEEDED
 Textures # Empty
 Tracks6 # Done
@@ -112,7 +110,7 @@ sub dumpAnnotatedHex($)
   my $prev="";
   foreach(0 .. length($value)-1)
   {
-    $content.="<br/>".("&#160;" x $linebreaks{$_})  if($linebreaks{$_});
+    $content.="<br/>" if($linebreaks{$_});
     my $this=$bytelabels{$_}||"";
 	my $next=$bytelabels{$_+1}||"";
     $content.="<div title='$this $_' style='background-color:".($this?"yellow":"white").";'>" if($prev ne $this);
@@ -290,7 +288,7 @@ sub HandleBinFile
     my $rtyp=substr($content,$pos,length($recordtype));
 	if($rtyp ne $recordtype && !($recordtype eq "\x01\x00" && $rtyp=~m/^(\x01|\x03|\x05|\x07|\x08)\x00$/)) # Dimensions have both 01:00 and 05:00 record types
 	{
-	  print "ERROR: Wrong recordtype: ".bin2hex($rtyp).", expected ".bin2hex($recordtype)." at pos $pos.\n";
+	  print "Error: Wrong recordtype: ".bin2hex($rtyp).", expected ".bin2hex($recordtype)." at pos $pos.\n";
 	  if(!$ARGV[0] eq "CRLF")
 	  {
 	    print "The wrong record type could be a new record type, or a decoding error due to wrong CRLF encoding.\n";
@@ -872,8 +870,6 @@ foreach my $filename(@files)
   our @asciilines=();
   our %positions=();
   
-  %shownwarnings=();
-  
   # assertdata asserts that a parsed binary field has been parsed properly, by comparing it to the ascii variant.
   sub assertdata
   {
@@ -1436,7 +1432,7 @@ EOF
 	}
 	if(!defined($layermap{$_[0]}) && !defined($layererrors{$_[0]}))
 	{
-      print "WARNING: No mapping for Layer ".$_[0]." defined!\n" ;
+      print "No mapping for Layer ".$_[0]." defined!\n" ;
 	  $layererrors{$_[0]}=1;
 	}
 	return $layermap{$_[0]}; 
@@ -1520,135 +1516,183 @@ EOF
     $componentid++;
   });
 
-
   #Converting the Pads  
   #The output is collected in %pads, which is later on filled into the output file in the ComponentBodies Section.
   #HandleBinFile("$short/Root Entry/Pads6/Data.dat","\x02",0,0, sub 
   {
-    %linebreaks=(); # These must be initialized before the parsing since we might handle several files
-    %bytelabels=();
     print "Pads6...\n";
-    my $value=readfile("$short/Root Entry/Pads6/Data.dat");
-    #$value=~s/\r\n/\n/gs;
+    my $pads_data=readfile("$short/Root Entry/Pads6/Data.dat");
+
+	open AOUT,">$short/Root Entry/Pads6/Data.dat.txt";
 	open DOUT,">Pads.txt";
+	open HOUT,">Pads.html";
 	my $pos=0;
-	my $counter="0";
-	while(($pos+140)<length($value) && $pos>=0)
+        my $counter="0";
+
+        # Read through all the data
+	while($pos < length($pads_data))
 	{
 	  #print "Loop: pos: $pos(".sprintf("0x%X",$pos).")\n";
 	  my $opos=$pos;
-	  #$linebreaks{$pos}=1;
-	  if(msubstr($value,$pos,1,"Type") =~m/[\x80\x86]/)
-	  {
-	    $pos+=1302/2;
-		print STDERR "ERROR: 0x80 / 0x86 found in pads\n";
-		next;
-	  }
-	  if(msubstr($value,$pos,1,"Type") =~m/[\x00]/)
-	  {
-	    $pos+=1402/2;
-		print STDERR "ERROR: 0x00 found in pads\n";
-	    #print "Checking2... pos:$pos\n";
-	    if(msubstr($value,$pos,1,"Type") ne "\x02" && (length($value)>$pos+0x1e0) && substr($value,$pos+0x1e0,1) eq "\x02")
-  	    {
-	       print "Seems we should skip 0x1e0 bytes\n";
-		   $pos+=0x1e0;
-        }		
-		next;
-	  }
-	  if(msubstr($value,$pos,1,"Type") ne "\x02")
-	  {
-            my $xpos=sprintf("0x%X",$pos);
-			print "ERROR: Parsing error in Pads, header code 02 does not match ".bin2hex(substr($value,$pos,1))." at pos $pos ($xpos)\n";
-			my $spos=$pos-30;
-			my $found=0;
-			foreach($spos .. length($value)-100)
-			{
-			  if(substr($value,$_,1) eq "\x02")
-			  {
-			    print "Found a potential startbyte at $_\n";
-				print "V: ".unpack("V",substr($value,$_+1,4))."\n";
-				print "C: ".unpack("C",substr($value,$_+5,1))."\n";
-			    if(unpack("V",substr($value,$_+1,4)) == unpack("C",substr($value,$_+5,1))+1)
-				{
-				   $pos=$_;
-				   $found=1;
-				   print "Found next start at $_\n";
-				   last;
-				}
-			  }
-			}
-			if(!$found)
-			{
-			  print "ERROR: Cannot find another start byte 0x02\n";
-              last;
-			}
-	  }
-	  
-	  my @starts=();
-	  my @lengths=();
-	  my @contents=();
-	  
-	  my $len=unpack("V",msubstr($value,$pos+1,4,"len"));
-	  my $namelen=unpack("C",msubstr($value,$pos+5,1,"namelen"));
 
+	  ####
+	  # Skipping over data, searching for record type 2 (pads)?
 
-	  my $tpos=$pos+1;
-	  foreach(0 .. 5)
-	  {
-		$linebreaks{$tpos}=3;
-	    $starts[$_]=$tpos+4;
-		$lengths[$_]=unpack("V",msubstr($value,$tpos,4,"len[$_]"));
-		$contents[$_]=substr($value,$tpos,$lengths[$_]);
-		$tpos+=4+$lengths[$_];
-	  }
-	  
-	  #print "len: $len\n";
-	  
-	  if($len>256 || $len<0)
-	  {
-	    print "ERROR: Parsing error with length: $len at position $pos+1 (".sprintf("0x%X",$pos+1).")\n";
-		last;
+	  # if(msubstr($pads_data,$pos,1,"Type") =~m/[\x80\x86]/)
+	  # {
+	  #   print AOUT bin2hex(substr($pads_data,$pos,1302/2))."\n";
+	  #   $pos+=1302/2;
+	  # 	next;
+	  # }
+	  # if(msubstr($pads_data,$pos,1,"Type") =~m/[\x00]/)
+	  # {
+	  #   print AOUT bin2hex(substr($pads_data,$pos,1402/2))."\n";
+	  #   $pos+=1402/2;
+	
+	  #   #print "Checking2... pos:$pos\n";
+	  #   if(msubstr($pads_data,$pos,1,"Type") ne "\x02" && (length($pads_data)>$pos+0x1e0) && substr($pads_data,$pos+0x1e0,1) eq "\x02")
+  	  #   {
+	  #      print "Seems we should skip 0x1e0 bytes\n";
+	  # 	   $pos+=0x1e0;
+	  #   }		
+	  # 	next;
+	  # }
+	  # if(msubstr($pads_data,$pos,1,"Type") ne "\x02")
+	  # {
+          #   my $xpos=sprintf("0x%X",$pos);
+	  # 		print "Parsing error in Pads, header code 02 does not match ".bin2hex(substr($pads_data,$pos,1))." at pos $pos ($xpos)\n";
+          #   print AOUT bin2hex(substr($pads_data,$pos))."\n";
+	  # 		my $spos=$pos-30;
+	  # 		my $found=0;
+	  # 		foreach($spos .. length($pads_data)-100)
+	  # 		{
+	  # 		  if(substr($pads_data,$_,1) eq "\x02")
+	  # 		  {
+	  # 		    print "Found a potential startbyte at $_\n";
+	  # 			print "V: ".unpack("V",substr($pads_data,$_+1,4))."\n";
+	  # 			print "C: ".unpack("C",substr($pads_data,$_+5,1))."\n";
+	  # 		    if(unpack("V",substr($pads_data,$_+1,4)) == unpack("C",substr($pads_data,$_+5,1))+1)
+	  # 			{
+	  # 			   $pos=$_;
+	  # 			   $found=1;
+	  # 			   print "Found next start at $_\n";
+	  # 			   last;
+	  # 			}
+	  # 		  }
+	  # 		}
+	  # 		if(!$found)
+	  # 		{
+	  # 		  print "ERROR: Cannot find another start byte 0x02\n";
+          #     last;
+	  # 		}
+	  # }
+
+	  #### Check Entity Marker byte which starts off each pad entry.
+
+	  my $position_str=sprintf("%04x",$pos);
+	  print  "++ Entity Start At $position_str.\n";
+
+	  if(msubstr($pads_data,$pos,1,"Type") ne "\x02") {
+	      print "Did not match expected Pads Entity type byte [0x02] at position $pos."
 	  }
   	  $linebreaks{$pos}=1;
+	  $pos+=1;
+	  
+	  # We now read the entity's records which contain length-encoded data field (normal case) or some kind of fixed-size data struct
+	  # TODO: DRY out the repetitive code for consuming records
 
-	  my $name=msubstr($value,$pos+6,$len-1,"name");
-      #print "Name: $name\n";
+	  ## Extract Field 1: Pad name
+  	  $linebreaks{$pos}=1;
+	  my $record_length=unpack("V",msubstr($pads_data,$pos,4,"len"));  # Get length of pad name record (Record 1)
+	  my $field_length=unpack("C",msubstr($pads_data,$pos+4,1,"len3"));  # Pad name field (Field 1.1) is length-encoded
+	  #print "len: $record_length\n";
+	  
+	  if($record_length>256 || $record_length<0)
+	  {
+	    print "Parsing error with length: $record_length at position $pos+1 (".sprintf("0x%X",$pos+1).")\n";
+		last;
+	  }
+
+	  print AOUT bin2hex(substr($pads_data,$pos,5))." ";
+	  print AOUT sprintf("A:%12s",bin2hex(substr($pads_data,$pos+5,$record_length)))." ";
+	  my $name=msubstr($pads_data,$pos+5,$record_length-1,"name");
+	  #print "Name: $name\n";
 	  
 	  assertdata("Pad",$counter,"RECORD","Pad");
   	  assertdata("Pad",$counter,"INDEXFORSAVE",$counter);
 	  assertdata("Pad",$counter,"NAME",$name);
 	  
-	  #$pos+=5+$len; # This ignores the length of the initial fields, and is therefore wrong
+	  $pos+=4+$record_length;
+
+	  ## Skip Record 2: Unknown variable data
+	  $linebreaks{$pos}=1;
+	  $record_length=unpack("V",msubstr($pads_data,$pos,4,"len")); # Get length of Record 2
+	  $field_length=unpack("C",msubstr($pads_data,$pos+4,1,"len3")); # Get length of Field 2.1
+	  # Field 2.1 - zero length expected
+	  if($field_length!=0) 
+	  {
+	      printf "Field 2.1 was expected to be of size 0, but got $field_length instead at $pos";
+	  }
+	  $pos+=4+$record_length;
 	  
-	  $pos=$starts[4]-23; # This correctly parses the initial fields. Unfortunately the rest of the code depends on the pos being 23 bytes ahead of the start of this field, so we set the pos accordingly here.
-	  #print "Difference: ".($starts[4]-$pos)."\n";
+	  ## Skip Record 3: Unknown variable data
+	  $linebreaks{$pos}=1;
+	  $record_length=unpack("V",msubstr($pads_data,$pos,4,"len")); # Get length of Record 3
+	  $field_length=unpack("C",msubstr($pads_data,$pos+4,1,"len3")); # Get length of Field 3.1
+	  # Field 3.1 - length=4 expected
+	  if($field_length!=4) 
+	  {
+	      printf "Field 3.1 was expected to be of size 4, but got $field_length instead at $pos";
+	  }
+	  $pos+=4+$record_length;
+
+	  ## Skip Record 4: Unknown variable data
+	  $linebreaks{$pos}=1;
+	  $record_length=unpack("V",msubstr($pads_data,$pos,4,"len")); # Get length of Record 4
+	  $field_length=unpack("C",msubstr($pads_data,$pos+4,1,"len3")); # Get length of Field 4.1
+	  # Field 4.1 - zero length expected
+	  if($field_length!=0) 
+	  {
+	      printf "Field 4.1 was expected to be of size 0, but got $field_length instead at $pos";
+	  }
+	  $pos+=4+$record_length;
 	  
-	  
-	  #$linebreaks{$pos}=1;
-	  #print "pos: ".sprintf("0x%X",$pos+143)."\n";
-  	  my $len2=unpack("V",msubstr($value,$pos+143,4,"len2")); # This len2 field seems wrong and needs further examination
-	  $len2=50 if($len2>1000);
-	  $len2=50 if($len2==1);
-      #print "len2: $len2\n"; # if($len2);
-	  #$len2=61;
+	  ## Decode Record 5: Pads construction details
+	  $linebreaks{$pos}=1;
+	  $record_length=unpack("V",msubstr($pads_data,$pos,4,"len")); # Get length of Record 5
+	  undef $field_length; 	  # Record 5 does not appear to be a length-encoded field
+
+	  ## We need to look ahead to Record 6 as well, as certain pad types appears to add additional pad stack data stored in Record6.
+	  ##
+	  my $field_length2=unpack("V",msubstr($pads_data,$pos+4+$record_length,4,"len2")); 
+	  # TODO: rename $field_length2 to $record6_length
+
+      # 	  #print "pos: ".sprintf("0x%X",$pos+143)."\n";
+      # 	  my $field_length2=unpack("V",msubstr($pads_data,$pos+143,4,"len2"));
+      # 	  $field_length2=50 if($field_length2>1000);
+      # 	  $field_length2=50 if($field_length2==1);
+      # #print "len2: $field_length2\n"; # if($field_length2);
+      # 	  #$field_length2=61;
 	  
 	  
       my $npos=$pos;
 	  
-      $rawbinary{"Pad"}{$counter}=substr($value,$pos,147); # !!!! Is this used again?
-
-      my $component=unpack("s",msubstr($value,$pos+30,2,"component"));	
+      $rawbinary{"Pad"}{$counter}=substr($pads_data,$pos,$record_length); # !!!! Is this used again?
+	  my $position_str=sprintf("%04x",$pos);
+	  print  "**** At $position_str.\n";
+	  
+      my $component=unpack("s",msubstr($pads_data,$pos-19+30,2,"component"));	
 	  #print "Component: $component\n";
 	  assertdata("Pad",$counter,"COMPONENT",$component) if($component>=0);
 
-	  assertdata("Pad",$counter,"X",bmil2(msubstr($value,$pos+36,4,"X")));
-	  assertdata("Pad",$counter,"Y",bmil2(msubstr($value,$pos+40,4,"Y")));
-	  #print "Pad x: ".bmil2(substr($value,$pos+36,4))."\n";
-	  #print "Pad y: ".bmil2(substr($value,$pos+40,4))."\n";
+	  #print AOUT "component:$component net:$net\n";
+	  assertdata("Pad",$counter,"X",bmil2(msubstr($pads_data,$pos-19+36,4,"X")));
+	  assertdata("Pad",$counter,"Y",bmil2(msubstr($pads_data,$pos-19+40,4,"Y")));
+	  #print STDERR "Pad x: ".bmil2(substr($pads_data,$pos-19+36,4))."\n";
+	  #print STDERR "Pad y: ".bmil2(substr($pads_data,$pos-19+40,4))."\n";
 	  
-      my $x1=-$xmove+bmil2mm(substr($value,$pos+36,4));
-	  my $y1=$ymove-bmil2mm(substr($value,$pos+40,4));
+      my $x1=-$xmove+bmil2mm(substr($pads_data,$pos-19+36,4));
+	  my $y1=$ymove-bmil2mm(substr($pads_data,$pos-19+40,4));
   	  #MarkPoint($x1,$y1) if($counter eq 2);
 	  $x1-=$componentatx{$component} if($component>=0 && defined($componentatx{$component}));
 	  $y1-=$componentaty{$component} if($component>=0 && defined($componentaty{$component}));
@@ -1656,7 +1700,7 @@ EOF
       $x1=sprintf("%.5f",$x1);
 	  $y1=sprintf("%.5f",$y1);
 	  
-      my $altlayer=unpack("C",msubstr($value,$pos+23,1,"altlayer"));
+      my $altlayer=unpack("C",msubstr($pads_data,$pos-19+23,1,"altlayer"));
   	  assertdata("Pad",$counter,"LAYER",$altlayername{$altlayer});
 	  #print "Altlayer: $altlayer\n";
 
@@ -1665,149 +1709,161 @@ EOF
 	  $layer.=" F.Mask F.Paste" if($layer=~m/[F\*]\.Cu/);
 	  $layer.=" B.Mask B.Paste" if($layer=~m/[B\*]\.Cu/);
 
-	  my $sx=bmil2mm(msubstr($value,$pos+44,4,"sx")); # For Padmode=1, this is TOPXSIZE
-	  my $sy=bmil2mm(msubstr($value,$pos+48,4,"sy")); # For Padmode=1, this is TOPYSIZE
-  	  assertdata("Pad",$counter,"XSIZE",bmil2(substr($value,$pos+44,4)));
-  	  assertdata("Pad",$counter,"YSIZE",bmil2(substr($value,$pos+48,4)));
+	  my $sx=bmil2mm(msubstr($pads_data,$pos-19+44,4,"sx")); # For Padmode=1, this is TOPXSIZE
+	  my $sy=bmil2mm(msubstr($pads_data,$pos-19+48,4,"sy")); # For Padmode=1, this is TOPYSIZE
+  	  assertdata("Pad",$counter,"XSIZE",bmil2(substr($pads_data,$pos-19+44,4)));
+  	  assertdata("Pad",$counter,"YSIZE",bmil2(substr($pads_data,$pos-19+48,4)));
       #print "sx: $sx sy: $sy\n";
 	  
 	  # Some Pads have TOPXSIZE, MIDXSIZE, BOTXSIZE, TOPYSIZE, ... instead of XSIZE+YSIZE, this is decided by PADMODE below.
 	  
-	  my $midxsize=bmil2mm(msubstr($value,$pos+52,4,"midxsize"));
-	  my $midysize=bmil2mm(msubstr($value,$pos+56,4,"midysize"));
-	  my $botxsize=bmil2mm(msubstr($value,$pos+60,4,"botxsize"));
-	  my $botysize=bmil2mm(msubstr($value,$pos+64,4,"botysize"));
-  	  #assertdata("Pad",$counter,"XSIZE",bmil2(substr($value,$pos+44,4)));
-  	  #assertdata("Pad",$counter,"YSIZE",bmil2(substr($value,$pos+48,4)));
+	  my $midxsize=bmil2mm(msubstr($pads_data,$pos-19+52,4,"midxsize"));
+	  my $midysize=bmil2mm(msubstr($pads_data,$pos-19+56,4,"midysize"));
+	  my $botxsize=bmil2mm(msubstr($pads_data,$pos-19+60,4,"botxsize"));
+	  my $botysize=bmil2mm(msubstr($pads_data,$pos-19+64,4,"botysize"));
+  	  #assertdata("Pad",$counter,"XSIZE",bmil2(substr($pads_data,$pos-19+44,4)));
+  	  #assertdata("Pad",$counter,"YSIZE",bmil2(substr($pads_data,$pos-19+48,4)));
 	  
 	  
 	  
 	  
-	  my $dir=unpack("d",msubstr($value,$pos+75,8,"direction")); 
+	  my $dir=unpack("d",msubstr($pads_data,$pos-19+75,8,"direction")); 
 	  assertdata("Pad",$counter,"ROTATION",enull(sprintf("%.14E",$dir)));
 	  #print "Direction: $dir\n";
 	  
-	  my $holesize=bmil2mm(msubstr($value,$pos+68,4,"holesize"));
-  	  assertdata("Pad",$counter,"HOLESIZE",bmil2(substr($value,$pos+68,4)));
+	  my $holesize=bmil2mm(msubstr($pads_data,$pos-19+68,4,"holesize"));
+  	  assertdata("Pad",$counter,"HOLESIZE",bmil2(substr($pads_data,$pos-19+68,4)));
 	  #print "HoleSize: $holesize\n";
   
-	  #my $holetype=unpack("C",msubstr($value,$pos+144,1,"holetype"));
+	  #my $holetype=unpack("C",msubstr($pads_data,$pos-19+144,1,"holetype"));
   	  #assertdata("Pad",$counter,"HOLETYPE",$holetype); # Seems to be wrong
   
-	  my $HOLEROTATION=unpack("d",msubstr($value,$pos+129,8,"holerotation")); 
+	  my $HOLEROTATION=unpack("d",msubstr($pads_data,$pos-19+129,8,"holerotation")); 
 	  assertdata("Pad",$counter,"HOLEROTATION",enull(sprintf("%.14E",$HOLEROTATION)));
       #print "Hole Rotation: $HOLEROTATION\n";
 	  
 	  my $mdir=($dir==0)?"":" $dir";
 	  
 	  my %typemap=("2"=>"rect","1"=>"circle","3"=>"oval","0"=>"Unknown"); 
-	  my %typemapalt=("2"=>"RECTANGLE","1"=>$len2?"ROUNDEDRECTANGLE":"ROUND","3"=>"OCTAGONAL","0"=>"ROUND","9"=>"ROUNDEDRECTANGLE","4"=>"THERMALRELIEF","6"=>"POINT","7"=>"POINT"); 
-	  my $otype=unpack("C",msubstr($value,$pos+72,1,"TOPOTYPE"));
-	  my $midotype=unpack("C",msubstr($value,$pos+73,1,"MIDOTYPE")); # different shapes for different layers are not supported by KiCad
-	  my $bototype=unpack("C",msubstr($value,$pos+74,1,"BOTOTYPE"));
+	  my %typemapalt=("2"=>"RECTANGLE","1"=>$field_length2?"ROUNDEDRECTANGLE":"ROUND","3"=>"OCTAGONAL","0"=>"ROUND","9"=>"ROUNDEDRECTANGLE","4"=>"THERMALRELIEF","6"=>"POINT","7"=>"POINT"); 
+	  my $otype=unpack("C",msubstr($pads_data,$pos-19+72,1,"TOPOTYPE"));
+	  my $midotype=unpack("C",msubstr($pads_data,$pos-19+73,1,"MIDOTYPE")); # different shapes for different layers are not supported by KiCad
+	  my $bototype=unpack("C",msubstr($pads_data,$pos-19+74,1,"BOTOTYPE"));
   	  assertdata("Pad",$counter,"SHAPE",$typemapalt{$otype});
-      my $type=$typemap{$otype};
-	  #print "otype: $otype typemapalt: $typemapalt{$otype} type: $type\n";
+
+	  my $type=$typemap{$otype};
+	  
+	  print STDERR "otype: $otype typemapalt: $typemapalt{$otype} type: $type\n";
 
 	  if($otype eq "3")
 	  {
-	     print "WARNING: Octagonal pads are currently not supported by KiCad. We convert them to oval for now, please verify the PCB design afterwards. This can cause overlaps and production problems!\n" if(!defined($shownwarnings{'OCTAGONAL'}));
-		 $shownwarnings{'OCTAGONAL'}++;
+	     print "Warning: Octagonal pads are currently not supported by KiCad. We convert them to oval for now, please verify the PCB design afterwards. This can cause overlaps and production problems!\n";
 	  }
 	  
 	  if($typemapalt{$otype} eq "ROUNDEDRECTANGLE")
 	  {
-  	    #print "Pad: $counter $otype ".bin2hex(substr($value,$pos,200))."\n";
-        print "WARNING: This is a rounded rectangle pad, and those are currently not supported by KiCad. We convert them to rounded pads for now, please verify the PCB design afterwards. This can cause overlaps and production problems!\n" if(!defined($shownwarnings{'ROUNDEDRECTANGLE'}));
-		$shownwarnings{'ROUNDEDRECTANGLE'}++;
-		#print "len2: $len2\n";
-		#print bin2hex(substr($value,$pos+147,$len2))."\n";
+  	    #print "Pad: $counter $otype ".bin2hex(substr($pads_data,$pos,200))."\n";
+        print "Warning: This is a rounded rectangle pad, and those are currently not supported by KiCad. We convert them to rounded pads for now, please verify the PCB design afterwards. This can cause overlaps and production problems!\n";
+		#print "len2: $field_length2\n";
+		#print bin2hex(substr($pads_data,$pos-19+147,$field_length2))."\n";
 	  }
 	  
 	  $type="oval" if($type eq "circle" && $sx != $sy);
 	  
 	  
       my %platemap=("0"=>"FALSE","1"=>"TRUE");
-      my $plated=$platemap{unpack("C",msubstr($value,$pos+83,1,"plated"))};	  
-	  assertdata("Pad",$counter,"PLATED",uc($alttruth{unpack("C",substr($value,$pos+83,1))}));
+      my $plated=$platemap{unpack("C",msubstr($pads_data,$pos-19+83,1,"plated"))};	  
+	  assertdata("Pad",$counter,"PLATED",uc($alttruth{unpack("C",substr($pads_data,$pos-19+83,1))}));
       #print "Plated: $plated\n";
 	  
-	  my $onet=unpack("s",msubstr($value,$pos+26,2,"onet"));
+	  my $onet=unpack("s",msubstr($pads_data,$pos-19+26,2,"onet"));
   	  assertdata("Pad",$counter,"NET",$onet) if($onet>=0);
       my $net=$onet+2;	  
 	  my $netname=$netnames{$net};
 	  #print STDERR "ONet: $onet Net: $net NetName: $netname\n";
 	  
 	  my %soldermaskexpansionmap=("1"=>"Rule","2"=>"Manual");
-  	  assertdata("Pad",$counter,"SOLDERMASKEXPANSIONMODE",$soldermaskexpansionmap{unpack("C",msubstr($value,$pos+125,1,"SolderMaskExpansionMode"))});
-	  my $soldermaskexpansionmode=$soldermaskexpansionmap{unpack("C",msubstr($value,$pos+125,1,"SolderMaskExpansionMode"))}||"Rule";
+  	  assertdata("Pad",$counter,"SOLDERMASKEXPANSIONMODE",$soldermaskexpansionmap{unpack("C",msubstr($pads_data,$pos-19+125,1,"SolderMaskExpansionMode"))});
+	  my $soldermaskexpansionmode=$soldermaskexpansionmap{unpack("C",msubstr($pads_data,$pos-19+125,1,"SolderMaskExpansionMode"))};
 
-	  my $PASTEMASKEXPANSIONMODE=unpack("C",msubstr($value,$pos+124,1,"PasteMaskExpansionMode"));
+	  my $PASTEMASKEXPANSIONMODE=unpack("C",msubstr($pads_data,$pos-19+124,1,"PasteMaskExpansionMode"));
 	  assertdata("Pad",$counter,"PASTEMASKEXPANSIONMODE",$altrule{$PASTEMASKEXPANSIONMODE});
-	  my $PASTEMASKEXPANSION_MANUAL=bmil2mm(msubstr($value,$pos+109,4,"PasteMaskExpanionManual")); # AUTOGENERATED
-      assertdata("Pad",$counter,"PASTEMASKEXPANSION_MANUAL",bmil2(substr($value,$pos+109,4))) if($PASTEMASKEXPANSION_MANUAL eq 2 && bmil2(substr($value,$pos+109,4)) ne "0mil");
+	  my $PASTEMASKEXPANSION_MANUAL=bmil2mm(msubstr($pads_data,$pos-19+109,4,"PasteMaskExpanionManual")); # AUTOGENERATED
+      assertdata("Pad",$counter,"PASTEMASKEXPANSION_MANUAL",bmil2(substr($pads_data,$pos-19+109,4))) if($PASTEMASKEXPANSION_MANUAL eq 2 && bmil2(substr($pads_data,$pos-19+109,4)) ne "0mil");
 	  
 	  #print "PASTEMASKEXPANSION_MANUAL: $PASTEMASKEXPANSION_MANUAL\n";
 	  
-      #my $BOTXSIZE=bmil2mm(msubstr($value,$pos+60,4,"BotXsize")); # AUTOGENERATED
-      #assertdata("Pad",$counter,"BOTXSIZE",bmil2(substr($value,$pos+60,4))); # Seems to be wrong
-      #my $BOTYSIZE=bmil2mm(msubstr($value,$pos+64,4,"BotYsize")); # AUTOGENERATED
-      #assertdata("Pad",$counter,"BOTYSIZE",bmil2(substr($value,$pos+64,4))); # Seems to be wrong
+      #my $BOTXSIZE=bmil2mm(msubstr($pads_data,$pos-19+60,4,"BotXsize")); # AUTOGENERATED
+      #assertdata("Pad",$counter,"BOTXSIZE",bmil2(substr($pads_data,$pos-19+60,4))); # Seems to be wrong
+      #my $BOTYSIZE=bmil2mm(msubstr($pads_data,$pos-19+64,4,"BotYsize")); # AUTOGENERATED
+      #assertdata("Pad",$counter,"BOTYSIZE",bmil2(substr($pads_data,$pos-19+64,4))); # Seems to be wrong
 	  #TOPSIZEX/Y: 44/48/52/56
 	  #MISIZEX/Y: 44/48/52/56
  
-      my $CAG=bmil2mm(msubstr($value,$pos+97,4,"CAG")); # AUTOGENERATED
-      assertdata("Pad",$counter,"CAG",bmil2(substr($value,$pos+97,4)));
-      my $CCW=bmil2mm(msubstr($value,$pos+91,4,"CCW")); # AUTOGENERATED
-      assertdata("Pad",$counter,"CCW",bmil2(substr($value,$pos+91,4)));
-      my $CPC=bmil2mm(msubstr($value,$pos+105,4,"CPC")); # AUTOGENERATED
-      assertdata("Pad",$counter,"CPC",bmil2(substr($value,$pos+105,4)));
-      my $CPE=bmil2mm(msubstr($value,$pos+109,4,"CPE")); # AUTOGENERATED
-      assertdata("Pad",$counter,"CPE",bmil2(substr($value,$pos+109,4)));
-      my $CPR=bmil2mm(msubstr($value,$pos+101,4,"CPR")); # AUTOGENERATED
-      assertdata("Pad",$counter,"CPR",bmil2(substr($value,$pos+101,4)));
-      my $CSE=bmil2mm(msubstr($value,$pos+113,4,"CSE")); # AUTOGENERATED
-      assertdata("Pad",$counter,"CSE",bmil2(substr($value,$pos+113,4)));
+      my $CAG=bmil2mm(msubstr($pads_data,$pos-19+97,4,"CAG")); # AUTOGENERATED
+      assertdata("Pad",$counter,"CAG",bmil2(substr($pads_data,$pos-19+97,4)));
+      my $CCW=bmil2mm(msubstr($pads_data,$pos-19+91,4,"CCW")); # AUTOGENERATED
+      assertdata("Pad",$counter,"CCW",bmil2(substr($pads_data,$pos-19+91,4)));
+      my $CPC=bmil2mm(msubstr($pads_data,$pos-19+105,4,"CPC")); # AUTOGENERATED
+      assertdata("Pad",$counter,"CPC",bmil2(substr($pads_data,$pos-19+105,4)));
+      my $CPE=bmil2mm(msubstr($pads_data,$pos-19+109,4,"CPE")); # AUTOGENERATED
+      assertdata("Pad",$counter,"CPE",bmil2(substr($pads_data,$pos-19+109,4)));
+      my $CPR=bmil2mm(msubstr($pads_data,$pos-19+101,4,"CPR")); # AUTOGENERATED
+      assertdata("Pad",$counter,"CPR",bmil2(substr($pads_data,$pos-19+101,4)));
+      my $CSE=bmil2mm(msubstr($pads_data,$pos-19+113,4,"CSE")); # AUTOGENERATED
+      assertdata("Pad",$counter,"CSE",bmil2(substr($pads_data,$pos-19+113,4)));
 	  
-      my $CEN=unpack("C",msubstr($value,$pos+95,1,"CEN")); # AUTOGENERATED
+      my $CEN=unpack("C",msubstr($pads_data,$pos-19+95,1,"CEN")); # AUTOGENERATED
       assertdata("Pad",$counter,"CEN",$CEN);
-      my $CPEV=unpack("C",msubstr($value,$pos+124,1,"CPEV")); # AUTOGENERATED
+      my $CPEV=unpack("C",msubstr($pads_data,$pos-19+124,1,"CPEV")); # AUTOGENERATED
       assertdata("Pad",$counter,"CPEV",$CPEV);
-      my $CPL=unpack("C",msubstr($value,$pos+117,1,"CPL")); # AUTOGENERATED
+      my $CPL=unpack("C",msubstr($pads_data,$pos-19+117,1,"CPL")); # AUTOGENERATED
       assertdata("Pad",$counter,"CPL",$CPL) if($CPL);
-      my $CSEV=unpack("C",msubstr($value,$pos+125,1,"CSEV")); # AUTOGENERATED
+      my $CSEV=unpack("C",msubstr($pads_data,$pos-19+125,1,"CSEV")); # AUTOGENERATED
       assertdata("Pad",$counter,"CSEV",$CSEV);
 	  
-  	  assertdata("Pad",$counter,"SOLDERMASKEXPANSION_MANUAL",bmil2(msubstr($value,$pos+113,4,"SolderMaskExpansionManual"))) if($soldermaskexpansionmode eq "Manual");
-  	  my $SOLDERMASKEXPANSION_MANUAL=bmil2mm(msubstr($value,$pos+113,4,"SolderMaskExpansionManual")); #Where is the SOLDERMASKEXPANSION_MANUAL stored?!? Is it in the CSE field?
+  	  assertdata("Pad",$counter,"SOLDERMASKEXPANSION_MANUAL",bmil2(msubstr($pads_data,$pos-19+113,4,"SolderMaskExpansionManual"))) if($soldermaskexpansionmode eq "Manual");
+  	  my $SOLDERMASKEXPANSION_MANUAL=bmil2mm(msubstr($pads_data,$pos-19+113,4,"SolderMaskExpansionManual")); #Where is the SOLDERMASKEXPANSION_MANUAL stored?!? Is it in the CSE field?
 	  
-	  my $PADMODE=unpack("C",msubstr($value,$pos+85,1,"PadMode"));
+	  my $PADMODE=unpack("C",msubstr($pads_data,$pos-19+85,1,"PadMode"));
 	  assertdata("Pad",$counter,"PADMODE",$PADMODE);
 	  if($PADMODE>0)
 	  {
 	    my %padmodes=(0=>"Simple",1=>"Top-Middle-Bottom",2=>"Full Stack");
-	    print STDERR "WARNING: Currently only the PadMode (Size and Shape) Simple is supported, ".$padmodes{$PADMODE}." is not supported by KiCad because KiCad uses the same Shape and Size on all layers.\n" if(!defined($shownwarnings{'SIMPLE'}));
-		$shownwarnings{'SIMPLE'}++;
+	    print STDERR "WARNING: Currently only the PadMode (Size and Shape) Simple is supported, ".$padmodes{$PADMODE}." is not supported by KiCad because KiCad uses the same Shape and Size on all layers.\n";
 	  }
 	  
 	  #print "layer:$layer net:$net component=$component type:$type dir:$dir \n";
+	  print AOUT bin2hex(substr($pads_data,$pos,$record_length))." ";
+	  if ($record_length != 0xab && $record_length != 0x9e) 
+	  {
+	      print STDERR "Unexpected Pads construction data record length at $pos, $record_length";
+	  }
 	  
+	  $pos+=4+$record_length;
+
+	  ## Record 6 : Variable pad stack?
+	  $linebreaks{$pos}=1;
+	  $record_length=unpack("V",msubstr($pads_data,$pos,4,"len")); # Get length of Record 6
+
+  	  print AOUT bin2hex(substr($pads_data,$pos,$record_length))."\n";
+          $pos+=4+$record_length;
 	  
-  	  #my $id=msubstr($value,$pos+2,16,"uniqueid"); # This seems to be very wrong, it is beyond the end of $value
+  	  #my $id=msubstr($pads_data,$pos-19+2,16,"uniqueid"); # This seems to be very wrong, it is beyond the end of $pads_data
       #    print "uniqueid: ".bin2hex($id)."\n" if(defined($id));
 
-	  #print "len2: $len2\n";
+	  #print "len2: $field_length2\n";
 	  
-	  if(length($value)>=$pos && msubstr($value,$pos-4,4,"doubleaddition") eq "\x8B\x02\x00\x00")
+	  if(length($pads_data)>=$pos && substr($pads_data,$pos-4,4) eq "\x8B\x02\x00\x00")
 	  {
-	    #print "Double addition detected\n";
-		$pos+=unpack("V",substr($value,$pos-4,4));
+	    print STDERR "Double addition detected\n";
+		$pos+=unpack("V",substr($pads_data,$pos-4,4));
 	  } 
 	  
 	  
 	  my $olayer=$altlayername{$altlayer}||"";
 	  my $onettext=$onet>=0?"|NET=$onet":"";
-	  my $dump=bin2hex(substr($value,$npos,143));
+	  my $dump=bin2hex(substr($pads_data,$npos,143));
 	  my $smem=$SOLDERMASKEXPANSION_MANUAL?"|SOLDERMASKEXPANSION_MANUAL=$SOLDERMASKEXPANSION_MANUAL":"";
 	  print DOUT "$dump |RECORD=Pad$onettext|COMPONENT=$component|INDEXFORSAVE=$counter|SELECTION=FALSE|LAYER=$olayer|LOCKED=FALSE|POLYGONOUTLINE=FALSE|USERROUTED=TRUE|UNIONINDEX=0|SOLDERMASKEXPANSIONMODE=$soldermaskexpansionmode$SOLDERMASKEXPANSION_MANUAL|PASTEMASKEXPANSIONMODE=Rule|NAME=1|X=5511.1023mil|Y=3027.2441mil|XSIZE=39.3701mil|YSIZE=39.3701mil|SHAPE=RECTANGLE|HOLESIZE=0mil|ROTATION= 2.70000000000000E+0002|PLATED=TRUE|DAISYCHAIN=Load|CCSV=0|CPLV=0|CCWV=1|CENV=1|CAGV=1|CPEV=1|CSEV=$CSEV|CPCV=1|CPRV=1|CCW=25mil|CEN=4|CAG=$CAG|CPE=$CPE|CSE=$CSE|CPC=$CPC|CPR=20mil|PADMODE=0|SWAPID_PAD=|SWAPID_GATE=|&|0|SWAPPEDPADNAME=|GATEID=0|OVERRIDEWITHV6_6SHAPES=FALSE|DRILLTYPE=0|HOLETYPE=0|HOLEWIDTH=0mil|HOLEROTATION= 0.00000000000000E+0000|PADXOFFSET0=0mil|PADYOFFSET0=0mil|PADXOFFSET1=0mil|PADYOFFSET1=0mil|PADXOFFSET2=0mil|PADYOFFSET2=0mil|PADXOFFSET3=0mil|PADYOFFSET3=0mil|PADXOFFSET4=0mil|PADYOFFSET4=0mil|PADXOFFSET5=0mil|PADYOFFSET5=0mil|PADXOFFSET6=0mil|PADYOFFSET6=0mil|PADXOFFSET7=0mil|PADYOFFSET7=0mil|PADXOFFSET8=0mil|PADYOFFSET8=0mil|PADXOFFSET9=0mil|PADYOFFSET9=0mil|PADXOFFSET10=0mil|PADYOFFSET10=0mil|PADXOFFSET11=0mil|PADYOFFSET11=0mil|PADXOFFSET12=0mil|PADYOFFSET12=0mil|PADXOFFSET13=0mil|PADYOFFSET13=0mil|PADXOFFSET14=0mil|PADYOFFSET14=0mil|PADXOFFSET15=0mil|PADYOFFSET15=0mil|PADXOFFSET16=0mil|PADYOFFSET16=0mil|PADXOFFSET17=0mil|PADYOFFSET17=0mil|PADXOFFSET18=0mil|PADYOFFSET18=0mil|PADXOFFSET19=0mil|PADYOFFSET19=0mil|PADXOFFSET20=0mil|PADYOFFSET20=0mil|PADXOFFSET21=0mil|PADYOFFSET21=0mil|PADXOFFSET22=0mil|PADYOFFSET22=0mil|PADXOFFSET23=0mil|PADYOFFSET23=0mil|PADXOFFSET24=0mil|PADYOFFSET24=0mil|PADXOFFSET25=0mil|PADYOFFSET25=0mil|PADXOFFSET26=0mil|PADYOFFSET26=0mil|PADXOFFSET27=0mil|PADYOFFSET27=0mil|PADXOFFSET28=0mil|PADYOFFSET28=0mil|PADXOFFSET29=0mil|PADYOFFSET29=0mil|PADXOFFSET30=0mil|PADYOFFSET30=0mil|PADXOFFSET31=0mil|PADYOFFSET31=0mil|PADJUMPERID=0\n";
 	  
@@ -1843,26 +1899,18 @@ EOF
       #print "Component: $component\n$pads{$component}\n";
 	  
 	  #print "Checking... pos:$pos\n";
-	  if((length($value)>$pos+0x1e0) && substr($value,$pos,1) ne "\x02" && substr($value,$pos+0x1e0,1) eq "\x02")
-	  {
-	     print "Seems we should skip 0x1e0 bytes\n";
-		 $pos+=0x1e0;
-      }
-	  
-	  
-	  if($pos != $tpos)
-	  {
-	    #print "POS should be $tpos but it is currently $pos\n";
-	  }
-	  $pos=$tpos;
-	  
+      # 	  if((length($pads_data)>$pos+0x1e0) && substr($pads_data,$pos,1) ne "\x02" && substr($pads_data,$pos+0x1e0,1) eq "\x02")
+      # 	  {
+      # 	     print "Seems we should skip 0x1e0 bytes\n";
+      # 		 $pos+=0x1e0;
+      # }
 	  
 	  $counter++;
 	  
 	}
+    close AOUT;
 	close DOUT;
-
-	open HOUT,">Pads.html";
+	
 	print HOUT <<EOF
 	<html>
 <head>
@@ -1875,7 +1923,7 @@ div {display: inline;}
 EOF
 ;
 	
-	print HOUT dumpAnnotatedHex($value);
+	print HOUT dumpAnnotatedHex($pads_data);
 	print HOUT "</pre></body></html>";
 	close HOUT;
   
@@ -2494,7 +2542,7 @@ EOF
 	$pourindex-=100 if($pourindex>=100);
 	if(defined($pourindex) && ( $pourindex<0 || $pourindex>100))
 	{
-	  print "WARNING: Pourindex $pourindex out of the expected range (0 .. 100)\n";
+	  print "Warning: Pourindex $pourindex out of the expected range (0 .. 100)\n";
 	}
 	my $net=($d{'NET'}||-1)+2; my $netname=$netnames{$net};
 	#print "Polygon $_[3] has net $net\n";
@@ -3414,6 +3462,7 @@ sub decodePcbLib($)
 		  last;
 		}
         my $component=unpack("s",substr($value,$pos+30,2));	
+	    #print AOUT "component:$component net:$net\n";
         my $x1=-$xmove+bmil2mm(substr($value,$pos+36,4));
 	    my $y1=$ymove-bmil2mm(substr($value,$pos+40,4));
   	    #MarkPoint($x1,$y1) if($counter eq 2);
